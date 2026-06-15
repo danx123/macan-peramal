@@ -15,7 +15,14 @@ import os
 import json
 import random
 import datetime
+import threading
 from typing import Dict, List, Tuple, Any, Optional
+
+try:
+    import winsound
+    _WINSOUND_AVAILABLE = True
+except ImportError:
+    _WINSOUND_AVAILABLE = False
 
 # Import PySide6 Core, Gui, and Widgets modules
 from PySide6.QtCore import (
@@ -34,6 +41,21 @@ from PySide6.QtWidgets import (
     QHeaderView, QFileDialog, QScrollArea, QFrame, QGraphicsDropShadowEffect,
     QGridLayout, QProgressBar, QMessageBox
 )
+
+# ==============================================================================
+# TAROT MODULE IMPORT
+# Dilakukan SETELAH semua import PySide6 selesai agar tarot_panel.py
+# bisa menemukan PySide6 di sys.modules saat diimpor.
+# Menangkap Exception (bukan hanya ImportError) karena Python bisa melempar
+# ModuleNotFoundError (subclass Exception) jika dependency di dalam
+# tarot_panel.py tidak tersedia.
+# ==============================================================================
+try:
+    from tarot_panel import TarotPanel as _TarotPanel
+    _TAROT_AVAILABLE = True
+except Exception:
+    _TAROT_AVAILABLE = False
+    _TarotPanel = None
 
 # ==============================================================================
 # GLOBAL LOCALIZATION & TRANSLATIONS DATABASE
@@ -96,6 +118,7 @@ TRANSLATIONS = {
         "lucky_days_result": "Hari Baik yang Direkomendasikan",
         "clear_history": "Sapu Bersih Riwayat",
         "export_success": "Laporan mistis Anda berhasil diekspor ke: ",
+        "tarot_reading": "Tarot Reading",
     },
     "en": {
         "app_title": "Macan Peramal",
@@ -154,6 +177,7 @@ TRANSLATIONS = {
         "lucky_days_result": "Recommended Favorable Days",
         "clear_history": "Purge History Data",
         "export_success": "Your mystic report has been successfully exported to: ",
+        "tarot_reading": "Tarot Reading",
     }
 }
 
@@ -172,8 +196,8 @@ QWidget {
 }
 
 QFrame#SidebarFrame {
-    background-color: #110B24;
-    border-right: 1px solid #2B1B4D;
+    background-color: transparent;
+    border-right: none;
 }
 
 QFrame#TitleBarFrame {
@@ -473,6 +497,77 @@ class MysticParticleWidget(QWidget):
             
             # Draw particle
             painter.drawEllipse(QRectF(p["x"], p["y"], p["size"], p["size"]))
+
+
+
+# ==============================================================================
+# SIDEBAR FRAME WITH MYSTICAL TEMPLE BACKGROUND IMAGE
+# ==============================================================================
+class MysticSidebarFrame(QFrame):
+    """
+    Custom QFrame subclass for the sidebar panel.
+    Paints assets/mystical_temple.png as a bottom-aligned background,
+    then overlays a dark semi-transparent gradient so all nav text stays
+    crisp and readable on top of the image.
+    Falls back to the standard solid colour if the asset is not found.
+    """
+
+    _ASSET_PATH = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "assets", "mystical_temple.png"
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SidebarFrame")
+
+        # Load the temple image once; keep None if missing
+        self._bg_pixmap: Optional[QPixmap] = None
+        if os.path.exists(self._ASSET_PATH):
+            px = QPixmap(self._ASSET_PATH)
+            if not px.isNull():
+                self._bg_pixmap = px
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform)
+
+        w, h = self.width(), self.height()
+
+        if self._bg_pixmap:
+            # ── 1. Scale image to fill full width, anchor to bottom ──────────
+            scaled = self._bg_pixmap.scaledToWidth(w, Qt.SmoothTransformation)
+            img_h = scaled.height()
+            # Draw flush with the bottom edge of the sidebar
+            y_offset = h - img_h
+            painter.drawPixmap(0, y_offset, scaled)
+
+            # ── 2. Full-height dark overlay so widgets remain readable ────────
+            # Top portion: near-opaque dark purple
+            top_grad = QLinearGradient(0, 0, 0, h)
+            top_grad.setColorAt(0.00, QColor(0x11, 0x0B, 0x24, 245))  # very dark
+            top_grad.setColorAt(0.55, QColor(0x11, 0x0B, 0x24, 210))  # slightly lighter
+            top_grad.setColorAt(0.75, QColor(0x0B, 0x04, 0x18, 160))  # semi-transparent
+            top_grad.setColorAt(1.00, QColor(0x05, 0x00, 0x10,  80))  # near-transparent at bottom
+            painter.fillRect(self.rect(), QBrush(top_grad))
+
+            # ── 3. Subtle golden shimmer along the bottom edge ────────────────
+            shimmer = QLinearGradient(0, h - 60, 0, h)
+            shimmer.setColorAt(0.0, QColor(0xFF, 0xCC, 0x33, 0))
+            shimmer.setColorAt(1.0, QColor(0xFF, 0xCC, 0x33, 18))
+            painter.fillRect(self.rect(), QBrush(shimmer))
+
+        else:
+            # Fallback: original solid colour from QSS
+            painter.fillRect(self.rect(), QColor(0x11, 0x0B, 0x24))
+
+        # ── 4. Right border line ──────────────────────────────────────────────
+        painter.setPen(QPen(QColor(0x2B, 0x1B, 0x4D), 1))
+        painter.drawLine(w - 1, 0, w - 1, h)
+
+        painter.end()
+        # Let Qt draw child widgets (buttons, labels) on top normally
+        super().paintEvent(event)
 
 
 # ==============================================================================
@@ -1536,10 +1631,34 @@ class DashboardView(QWidget):
         self.btn_goto_dream.setProperty("class", "MysticButton")
         self.btn_goto_dream.clicked.connect(lambda: self.switch_page(5))
         
+        # Shortcut to Tarot Reading (index 9)
+        self.btn_goto_tarot = QPushButton("🃏  Tarot Reading")
+        self.btn_goto_tarot.setProperty("class", "MysticButton")
+        self.btn_goto_tarot.clicked.connect(lambda: self.switch_page(9))
+        self.btn_goto_tarot.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
+                    stop:0 #3D1C6E, stop:1 #251148);
+                border: 1px solid #ffcc33;
+                border-radius: 6px;
+                color: #FFD700;
+                padding: 8px 16px;
+                font-weight: bold;
+                font-size: 12px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0,y1:0,x2:1,y2:1,
+                    stop:0 #5A2890, stop:1 #391A65);
+                border: 1px solid #ffe680;
+            }
+            QPushButton:pressed { background: #1a0840; }
+        """)
+        
         btn_layout.addWidget(self.btn_goto_name, 0, 0)
         btn_layout.addWidget(self.btn_goto_birth, 0, 1)
         btn_layout.addWidget(self.btn_goto_compat, 1, 0)
         btn_layout.addWidget(self.btn_goto_dream, 1, 1)
+        btn_layout.addWidget(self.btn_goto_tarot, 2, 0, 1, 2)  # spans both columns
         
         shortcut_layout.addLayout(btn_layout)
         left_layout.addWidget(self.shortcuts_card, 1)
@@ -1627,6 +1746,7 @@ class DashboardView(QWidget):
         self.btn_goto_birth.setText(lang_mgr.get("birth_analysis"))
         self.btn_goto_compat.setText(lang_mgr.get("compatibility"))
         self.btn_goto_dream.setText(lang_mgr.get("dream_interpreter"))
+        self.btn_goto_tarot.setText(f"🃏  {lang_mgr.get('tarot_reading')}")
         
         self.msg_header.setText(lang_mgr.get("daily_msg"))
         self.energy_title.setText(lang_mgr.get("energy_meter"))
@@ -3082,6 +3202,54 @@ class DailyFortuneView(QWidget):
 
 
 # ==============================================================================
+# TAROT FALLBACK WIDGET
+# Displayed when tarot_panel.py cannot be found at import time.
+# ==============================================================================
+class _TarotFallbackWidget(QWidget):
+    """
+    Minimal placeholder shown when tarot_panel.py is not present alongside
+    the main application file. Guides the user on how to fix the issue.
+    """
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 60, 40, 40)
+        layout.setSpacing(16)
+        layout.setAlignment(Qt.AlignCenter)
+
+        icon = QLabel("🃏")
+        icon.setAlignment(Qt.AlignCenter)
+        icon.setStyleSheet("font-size: 56px;")
+        layout.addWidget(icon)
+
+        title = QLabel("Modul Tarot Tidak Ditemukan")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(
+            "color: #FFD700; font-size: 18px; font-weight: bold; letter-spacing: 1px;")
+        layout.addWidget(title)
+
+        msg = QLabel(
+            "File  tarot_panel.py  tidak ditemukan di direktori aplikasi.\n\n"
+            "Letakkan file tersebut di folder yang sama dengan\n"
+            "macan_peramal_desktop_app.py  lalu restart aplikasi."
+        )
+        msg.setAlignment(Qt.AlignCenter)
+        msg.setWordWrap(True)
+        msg.setStyleSheet("color: #8C84A9; font-size: 13px; line-height: 160%;")
+        layout.addWidget(msg)
+
+        code_hint = QLabel("📂  /path/to/app/\n├── macan_peramal_desktop_app.py\n└── tarot_panel.py")
+        code_hint.setAlignment(Qt.AlignCenter)
+        code_hint.setStyleSheet(
+            "color: #B19FFC; font-family: 'Consolas', monospace; font-size: 12px;"
+            "background: #140F2D; border: 1px solid #351C5E; border-radius: 8px;"
+            "padding: 12px 20px;"
+        )
+        layout.addWidget(code_hint)
+        layout.addStretch()
+
+
+# ==============================================================================
 # SUB-VIEW: SETTINGS & LOCALIZATION CONTROL
 # ==============================================================================
 class SettingsView(QWidget):
@@ -3143,6 +3311,74 @@ class SettingsView(QWidget):
 
 
 # ==============================================================================
+# BGM MANAGER — looping background music via winsound
+# ==============================================================================
+class BgmManager:
+    """
+    Plays assets/ancient_bgm.wav on a dedicated daemon thread in an infinite
+    loop.  Uses winsound.PlaySound with SND_FILENAME | SND_LOOP | SND_ASYNC so
+    Windows handles the looping natively.
+
+    On non-Windows platforms winsound is unavailable; BgmManager degrades
+    gracefully — all public methods become no-ops.
+
+    Usage
+    -----
+        bgm = BgmManager()
+        bgm.play()    # start / resume
+        bgm.stop()    # stop & release audio handle
+    """
+
+    def __init__(self):
+        self._wav_path: str = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "assets", "ancient_bgm.wav"
+        )
+        self._playing: bool = False
+        self._lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    def play(self) -> None:
+        """Start looping BGM.  Safe to call multiple times."""
+        if not _WINSOUND_AVAILABLE:
+            return
+        if not os.path.exists(self._wav_path):
+            return
+        with self._lock:
+            if self._playing:
+                return
+            self._playing = True
+        # SND_LOOP requires SND_ASYNC so the call returns immediately.
+        # The OS keeps looping until PlaySound(None, ...) is called.
+        threading.Thread(target=self._start_loop, daemon=True).start()
+
+    def _start_loop(self) -> None:
+        winsound.PlaySound(
+            self._wav_path,
+            winsound.SND_FILENAME | winsound.SND_LOOP | winsound.SND_ASYNC
+        )
+
+    # ------------------------------------------------------------------
+    def stop(self) -> None:
+        """Stop BGM immediately."""
+        if not _WINSOUND_AVAILABLE:
+            return
+        with self._lock:
+            self._playing = False
+        # Passing None stops any currently playing async sound.
+        winsound.PlaySound(None, winsound.SND_PURGE)
+
+    # ------------------------------------------------------------------
+    @property
+    def is_playing(self) -> bool:
+        return self._playing
+
+
+# Global BGM instance — created once, shared across the app
+bgm_manager = BgmManager()
+
+
+# ==============================================================================
 # MAIN WINDOW FRAME WITH WINDOW CONTROLS & MODERN SIDEBAR
 # ==============================================================================
 class MacanPeramalWindow(QMainWindow):
@@ -3157,6 +3393,9 @@ class MacanPeramalWindow(QMainWindow):
         
         self.init_main_ui()
         lang_mgr.language_changed.connect(self.retranslate_ui)
+
+        # Start background music
+        bgm_manager.play()
         
     def init_main_ui(self):
         # Outer boundary with rounded borders
@@ -3212,9 +3451,8 @@ class MacanPeramalWindow(QMainWindow):
         workspace_layout.setContentsMargins(0, 0, 0, 0)
         workspace_layout.setSpacing(0)
         
-        # Sidebar Panel
-        sidebar = QFrame()
-        sidebar.setObjectName("SidebarFrame")
+        # Sidebar Panel — custom frame with mystical temple background image
+        sidebar = MysticSidebarFrame()
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(12, 15, 12, 15)
         sidebar_layout.setSpacing(8)
@@ -3242,6 +3480,7 @@ class MacanPeramalWindow(QMainWindow):
             ("primbon_encyclopedia", "📖"),
             ("calendar", "🕯️"),
             ("daily_fortune", "🍀"),
+            ("tarot_reading", "🃏"),
             ("settings", "⚙️")
         ]
         
@@ -3282,16 +3521,24 @@ class MacanPeramalWindow(QMainWindow):
         self.view_daily_fortune = DailyFortuneView()
         self.view_settings = SettingsView()
         
-        self.content_stack.addWidget(self.view_dashboard)
-        self.content_stack.addWidget(self.view_name_analysis)
-        self.content_stack.addWidget(self.view_birth_analysis)
-        self.content_stack.addWidget(self.view_compatibility)
-        self.content_stack.addWidget(self.view_numerology)
-        self.content_stack.addWidget(self.view_dream)
-        self.content_stack.addWidget(self.view_primbon)
-        self.content_stack.addWidget(self.view_calendar)
-        self.content_stack.addWidget(self.view_daily_fortune)
-        self.content_stack.addWidget(self.view_settings)
+        # ── Tarot Module (index 9 — inserted before settings) ──────────────────
+        if _TAROT_AVAILABLE:
+            self.view_tarot = _TarotPanel()
+        else:
+            # Graceful fallback widget when tarot_panel.py is missing
+            self.view_tarot = _TarotFallbackWidget()
+        
+        self.content_stack.addWidget(self.view_dashboard)        # 0
+        self.content_stack.addWidget(self.view_name_analysis)    # 1
+        self.content_stack.addWidget(self.view_birth_analysis)   # 2
+        self.content_stack.addWidget(self.view_compatibility)    # 3
+        self.content_stack.addWidget(self.view_numerology)       # 4
+        self.content_stack.addWidget(self.view_dream)            # 5
+        self.content_stack.addWidget(self.view_primbon)          # 6
+        self.content_stack.addWidget(self.view_calendar)         # 7
+        self.content_stack.addWidget(self.view_daily_fortune)    # 8
+        self.content_stack.addWidget(self.view_tarot)            # 9  ← Tarot
+        self.content_stack.addWidget(self.view_settings)         # 10
         
         workspace_layout.addWidget(self.content_stack, 7)
         core_layout.addWidget(workspace)
@@ -3325,6 +3572,11 @@ class MacanPeramalWindow(QMainWindow):
         if event.button() == Qt.LeftButton:
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
+
+    def closeEvent(self, event):
+        """Stop BGM cleanly before the window closes."""
+        bgm_manager.stop()
+        super().closeEvent(event)
 
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.LeftButton:
