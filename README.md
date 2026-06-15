@@ -18,7 +18,8 @@ Whether you are curious about your birth weton, seeking interpretation of a vivi
 ## 🖥️ Screenshots
 
 > *Application runs in a frameless, translucent dark-purple window with ambient particle effects and a gold-accented sidebar.*
-<img width="1152" height="767" alt="Screenshot 2026-06-13 233814" src="https://github.com/user-attachments/assets/8924b752-5047-4039-8d7a-aa47bd81d290" />
+<img width="1148" height="767" alt="Screenshot 2026-06-15 135950" src="https://github.com/user-attachments/assets/d2f4ac91-ff28-478f-afef-c07478d80af5" />
+
 
 
 ---
@@ -86,6 +87,10 @@ Whether you are curious about your birth weton, seeking interpretation of a vivi
 - **Lucky Day Finder** searches up to 60 days ahead for auspicious dates
 - Per-activity rules for Business Start, Travel, and Marriage Ceremony
 - Sacred weton combinations flagged with a ✦ SAKRAL badge
+
+### 🃏 Tarot Reading
+- Daily Tarot
+- Pick a Card
 
 ### ⚙️ Settings
 - Full **bilingual support**: Bahasa Indonesia / English (switchable at runtime)
