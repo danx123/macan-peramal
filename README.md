@@ -11,6 +11,11 @@
 
 Whether you are curious about your birth weton, seeking interpretation of a vivid dream, or looking for the most auspicious date to begin a new venture, Macan Peramal serves as your personal digital primbon.
 
+---
+
+<img width="923" height="1704" alt="macan peramal v2" src="https://github.com/user-attachments/assets/c4e279bb-dca8-46a0-bbb5-8072810a0d59" />
+
+
 
 
 ---
