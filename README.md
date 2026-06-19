@@ -159,7 +159,7 @@ tarot_panel.py                 # Tarot Engine
 README.md                      # This file
 ```
 
-> All data, logic, UI, and assets are contained within a single Python file for maximum portability.
+> For BGM & PDF you can download from binary release
 
 ---
 
