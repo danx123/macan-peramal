@@ -11,19 +11,20 @@
 
 Whether you are curious about your birth weton, seeking interpretation of a vivid dream, or looking for the most auspicious date to begin a new venture, Macan Peramal serves as your personal digital primbon.
 
----
-
-<img width="923" height="1704" alt="macan peramal v2" src="https://github.com/user-attachments/assets/c4e279bb-dca8-46a0-bbb5-8072810a0d59" />
-
-
-
 
 ---
 
 ## 🖥️ Screenshots
 
 > *Application runs in a frameless, translucent dark-purple window with ambient particle effects and a gold-accented sidebar.*
-<img width="1148" height="767" alt="Screenshot 2026-06-15 135950" src="https://github.com/user-attachments/assets/d2f4ac91-ff28-478f-afef-c07478d80af5" />
+<img width="1147" height="767" alt="Screenshot 2026-06-19 101633" src="https://github.com/user-attachments/assets/29faa739-9a47-4171-bdf2-bad29014672a" />
+
+<img width="1150" height="767" alt="Screenshot 2026-06-19 101647" src="https://github.com/user-attachments/assets/e071e90a-43e0-45bb-a5a3-b21ef8357051" />
+
+<img width="1149" height="767" alt="Screenshot 2026-06-19 101739" src="https://github.com/user-attachments/assets/6e0a940a-ddac-4201-9ba1-a85fefa9042a" />
+
+
+
 
 
 
