@@ -151,7 +151,11 @@ The application launches in a frameless window. Drag the title bar to move it. U
 ## 📁 Project Structure
 
 ```
+assets                         # SFX, GFX, BGM, PDF
 macan_peramal_desktop_app.py   # Single-file application (self-contained)
+native_resize.py               # Module windows
+snap_layout.py                 # Custom snap layout
+tarot_panel.py                 # Tarot Engine
 README.md                      # This file
 ```
 
