@@ -26,8 +26,8 @@ except ImportError:
 
 # Import PySide6 Core, Gui, and Widgets modules
 from PySide6.QtCore import (
-    Qt, QSize, QTimer, QPoint, QRectF, QPropertyAnimation, 
-    QEasingCurve, Signal, Slot, QObject, QDate
+    Qt, QSize, QTimer, QPoint, QPointF, QRectF, QPropertyAnimation, 
+    QEasingCurve, Signal, Slot, QObject, QDate, QEvent
 )
 from PySide6.QtGui import (
     QPainter, QColor, QRadialGradient, QLinearGradient, QFont, 
@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
     QStackedWidget, QLabel, QPushButton, QLineEdit, QComboBox, 
     QDateEdit, QTextBrowser, QTableWidget, QTableWidgetItem, 
     QHeaderView, QFileDialog, QScrollArea, QFrame, QGraphicsDropShadowEffect,
-    QGridLayout, QProgressBar, QMessageBox
+    QGridLayout, QProgressBar, QMessageBox, QSpinBox, QSlider
 )
 
 # ==============================================================================
@@ -58,6 +58,51 @@ except Exception:
     _TarotPanel = None
 
 # ==============================================================================
+# NATIVE RESIZE & SNAP LAYOUT MODULE IMPORT
+# Mengikuti pola yang sama dengan import tarot_panel di atas: dibungkus
+# try/except Exception supaya aplikasi tetap bisa berjalan (dengan fallback
+# drag manual) walau salah satu modul belum tersedia di environment.
+# ==============================================================================
+try:
+    from native_resize import NativeResizeMixin
+    _NATIVE_RESIZE_AVAILABLE = True
+except Exception as _e:
+    _NATIVE_RESIZE_AVAILABLE = False
+    NativeResizeMixin = object
+    print(f"[Macan Peramal] PERINGATAN: native_resize.py gagal dimuat ({_e}). "
+          f"Resize/drag native dinonaktifkan, fallback drag manual dipakai.")
+
+# native_resize.py only does real work on Windows (WM_NCHITTEST); on other
+# platforms its nativeEvent()/mouseDoubleClickEvent() are effectively
+# no-ops, so the manual Qt-side drag fallback further below needs to stay
+# active there even when the module imported successfully.
+_NATIVE_RESIZE_ACTIVE_PLATFORM = sys.platform.startswith("win")
+
+try:
+    from snap_layout import SnapLayoutMixin
+    _SNAP_LAYOUT_AVAILABLE = True
+except Exception as _e:
+    _SNAP_LAYOUT_AVAILABLE = False
+    SnapLayoutMixin = object
+    print(f"[Macan Peramal] PERINGATAN: snap_layout.py gagal dimuat ({_e}). "
+          f"Flyout Snap Layout dinonaktifkan.")
+
+# ==============================================================================
+# QtPdf MODULE IMPORT — untuk menu "Kitab Primbon Betaljemur"
+# QtPdf / QtPdfWidgets adalah paket tambahan (PySide6-Addons) yang mungkin
+# belum terpasang di sebagian instalasi, sehingga dibungkus try/except agar
+# aplikasi tetap berjalan dengan pesan fallback yang informatif.
+# ==============================================================================
+try:
+    from PySide6.QtPdf import QPdfDocument
+    from PySide6.QtPdfWidgets import QPdfView
+    _QTPDF_AVAILABLE = True
+except Exception:
+    _QTPDF_AVAILABLE = False
+    QPdfDocument = None
+    QPdfView = None
+
+# ==============================================================================
 # GLOBAL LOCALIZATION & TRANSLATIONS DATABASE
 # ==============================================================================
 TRANSLATIONS = {
@@ -72,6 +117,16 @@ TRANSLATIONS = {
         "numerology": "Pusat Numerologi",
         "dream_interpreter": "Tafsir Mimpi",
         "primbon_encyclopedia": "Ensiklopedia Primbon",
+        "primbon_betaljemur": "Kitab Primbon Betaljemur",
+        "betaljemur_loading": "Memuat kitab suci Primbon Betaljemur...",
+        "betaljemur_error": "Gagal memuat berkas PDF. Pastikan berkas tersedia di folder assets.",
+        "betaljemur_page_label": "Halaman",
+        "betaljemur_page_of": "dari",
+        "betaljemur_prev": "‹ Sebelumnya",
+        "betaljemur_next": "Berikutnya ›",
+        "betaljemur_go": "Buka",
+        "betaljemur_zoom": "Zoom",
+        "betaljemur_zoom_reset": "Reset",
         "calendar": "Kalender Spiritual",
         "daily_fortune": "Ramalan Harian",
         "lucky_day": "Hari Keberuntungan",
@@ -131,6 +186,16 @@ TRANSLATIONS = {
         "numerology": "Numerology Center",
         "dream_interpreter": "Dream Oracle",
         "primbon_encyclopedia": "Primbon Encyclopedia",
+        "primbon_betaljemur": "Betaljemur Primbon Book",
+        "betaljemur_loading": "Loading the sacred Betaljemur Primbon book...",
+        "betaljemur_error": "Failed to load the PDF file. Please make sure it exists in the assets folder.",
+        "betaljemur_page_label": "Page",
+        "betaljemur_page_of": "of",
+        "betaljemur_prev": "‹ Previous",
+        "betaljemur_next": "Next ›",
+        "betaljemur_go": "Go",
+        "betaljemur_zoom": "Zoom",
+        "betaljemur_zoom_reset": "Reset",
         "calendar": "Spiritual Calendar",
         "daily_fortune": "Daily Fortune",
         "lucky_day": "Lucky Day Finder",
@@ -396,6 +461,68 @@ QHeaderView::section {
     padding: 8px;
     border: 1px solid #2E1B51;
     font-weight: bold;
+}
+
+/* Betaljemur themed navigation buttons */
+QPushButton.BetaljemurNavBtn {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #5C2E8A, stop:1 #3A1660);
+    border: 1px solid #8B5CC8;
+    border-radius: 6px;
+    color: #E8D5FF;
+    padding: 6px 16px;
+    font-weight: bold;
+    font-size: 12px;
+}
+QPushButton.BetaljemurNavBtn:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #7A3DB0, stop:1 #50228A);
+    border: 1px solid #FFD700;
+    color: #FFD700;
+}
+QPushButton.BetaljemurNavBtn:pressed { background: #2A0E50; }
+QPushButton.BetaljemurNavBtn:disabled {
+    background: #1E1535;
+    border: 1px solid #3A2A55;
+    color: #5A4A75;
+}
+
+/* Betaljemur Go/Buka button - gold theme */
+QPushButton.BetaljemurGoBtn {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #C49A20, stop:1 #7A5C10);
+    border: 1px solid #FFD700;
+    border-radius: 6px;
+    color: #0F0921;
+    padding: 6px 14px;
+    font-weight: bold;
+    font-size: 12px;
+}
+QPushButton.BetaljemurGoBtn:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 #FFD700, stop:1 #C49A20);
+}
+QPushButton.BetaljemurGoBtn:pressed { background: #6A4C0E; }
+QPushButton.BetaljemurGoBtn:disabled {
+    background: #2A2010;
+    border: 1px solid #4A3A20;
+    color: #5A4A30;
+}
+
+/* Zoom slider for Betaljemur */
+QSlider#BetaljemurZoom::groove:horizontal {
+    height: 4px;
+    background: #2E1B51;
+    border-radius: 2px;
+}
+QSlider#BetaljemurZoom::handle:horizontal {
+    background: #8B4AD4;
+    border: 1px solid #FFD700;
+    width: 14px;
+    height: 14px;
+    margin: -5px 0;
+    border-radius: 7px;
+}
+QSlider#BetaljemurZoom::handle:horizontal:hover { background: #FFD700; }
+QSlider#BetaljemurZoom::sub-page:horizontal {
+    background: #6A329F;
+    border-radius: 2px;
 }
 """
 
@@ -2807,6 +2934,330 @@ class PrimbonView(QWidget):
 
 
 # ==============================================================================
+# SUB-VIEW: KITAB PRIMBON BETALJEMUR (PDF VIEWER VIA QtPdf)
+# ==============================================================================
+class PrimbonBetaljemurView(QWidget):
+    """
+    Menampilkan kitab "Kitab Primbon Betaljemur Adammakna" (PDF) memakai
+    QtPdf (QPdfDocument + QPdfView).
+
+    Pemuatan berkas dilakukan secara ASYNCHRONOUS: QPdfDocument.load()
+    kembali (return) seketika sementara proses parsing PDF berjalan di
+    balik layar pada thread worker internal Qt; status pemuatan dilaporkan
+    lewat sinyal statusChanged() (Loading -> Ready / Error). Dengan begitu
+    UI utama TIDAK PERNAH ngeblok/freeze walau berkas PDF berukuran besar.
+    Pembuatan dokumen sendiri juga ditunda satu siklus event-loop lewat
+    QTimer.singleShot() agar window utama selesai tampil dulu.
+    """
+
+    _PDF_PATH = os.path.join(
+        os.path.dirname(os.path.abspath(__file__)),
+        "assets", "Kitab_Primbon_Betaljemur_Adammakna.pdf"
+    )
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._doc_loaded = False
+        self.pdf_doc = None
+        self.pdf_view = None
+        self.init_ui()
+        lang_mgr.language_changed.connect(self.retranslate)
+
+    def init_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(12)
+
+        self.title = QLabel()
+        self.title.setProperty("class", "MysticSectionTitle")
+        layout.addWidget(self.title)
+
+        if not _QTPDF_AVAILABLE:
+            warn_card = QFrame()
+            warn_card.setProperty("class", "MysticCard")
+            warn_layout = QVBoxLayout(warn_card)
+            self.lbl_module_missing = QLabel(
+                "⚠️  Modul QtPdf tidak tersedia di instalasi PySide6 ini.\n"
+                "Pasang dengan: pip install PySide6-Addons"
+            )
+            self.lbl_module_missing.setWordWrap(True)
+            self.lbl_module_missing.setStyleSheet("color:#FF9F43; font-size:13px;")
+            warn_layout.addWidget(self.lbl_module_missing)
+            layout.addWidget(warn_card)
+            layout.addStretch()
+            self.retranslate()
+            return
+
+        # ── Toolbar Navigasi: Prev / Jump-to-page / Next / Zoom ─────────────
+        toolbar_card = QFrame()
+        toolbar_card.setProperty("class", "MysticCard")
+        toolbar_outer = QVBoxLayout(toolbar_card)
+        toolbar_outer.setContentsMargins(12, 10, 12, 10)
+        toolbar_outer.setSpacing(8)
+
+        # Row 1: navigasi halaman
+        nav_row = QHBoxLayout()
+        nav_row.setSpacing(10)
+
+        self.btn_prev = QPushButton("‹ Sebelumnya")
+        self.btn_prev.setProperty("class", "BetaljemurNavBtn")
+        self.btn_prev.clicked.connect(self.go_prev_page)
+        nav_row.addWidget(self.btn_prev)
+
+        nav_row.addStretch()
+
+        self.lbl_page = QLabel("Halaman")
+        nav_row.addWidget(self.lbl_page)
+
+        self.spin_page = QSpinBox()
+        self.spin_page.setMinimum(1)
+        self.spin_page.setMaximum(1)
+        self.spin_page.setFixedWidth(70)
+        self.spin_page.setAlignment(Qt.AlignCenter)
+        self.spin_page.editingFinished.connect(self.jump_to_spin_page)
+        nav_row.addWidget(self.spin_page)
+
+        self.lbl_page_total = QLabel("dari 0")
+        nav_row.addWidget(self.lbl_page_total)
+
+        self.btn_jump = QPushButton("Buka")
+        self.btn_jump.setProperty("class", "BetaljemurGoBtn")
+        self.btn_jump.clicked.connect(self.jump_to_spin_page)
+        nav_row.addWidget(self.btn_jump)
+
+        nav_row.addStretch()
+
+        self.btn_next = QPushButton("Berikutnya ›")
+        self.btn_next.setProperty("class", "BetaljemurNavBtn")
+        self.btn_next.clicked.connect(self.go_next_page)
+        nav_row.addWidget(self.btn_next)
+
+        toolbar_outer.addLayout(nav_row)
+
+        # Row 2: zoom slider
+        zoom_row = QHBoxLayout()
+        zoom_row.setSpacing(10)
+
+        self.lbl_zoom = QLabel("🔍 Zoom")
+        self.lbl_zoom.setStyleSheet("color:#A990D8; font-size:11px;")
+        zoom_row.addWidget(self.lbl_zoom)
+
+        self.zoom_slider = QSlider(Qt.Horizontal)
+        self.zoom_slider.setObjectName("BetaljemurZoom")
+        self.zoom_slider.setMinimum(50)    # 50% = 0.5×
+        self.zoom_slider.setMaximum(300)   # 300% = 3.0×
+        self.zoom_slider.setValue(100)     # default FitToWidth override-nya nanti
+        self.zoom_slider.setTickInterval(50)
+        self.zoom_slider.setFixedWidth(200)
+        self.zoom_slider.valueChanged.connect(self._on_zoom_slider_changed)
+        zoom_row.addWidget(self.zoom_slider)
+
+        self.lbl_zoom_pct = QLabel("100%")
+        self.lbl_zoom_pct.setStyleSheet("color:#D4AF37; font-size:11px; min-width:38px;")
+        zoom_row.addWidget(self.lbl_zoom_pct)
+
+        self.btn_zoom_reset = QPushButton("Reset")
+        self.btn_zoom_reset.setProperty("class", "BetaljemurGoBtn")
+        self.btn_zoom_reset.setFixedWidth(60)
+        self.btn_zoom_reset.clicked.connect(self._on_zoom_reset)
+        zoom_row.addWidget(self.btn_zoom_reset)
+
+        zoom_row.addStretch()
+        toolbar_outer.addLayout(zoom_row)
+
+        layout.addWidget(toolbar_card)
+        self._set_controls_enabled(False)
+
+        # ── Status / Loading Indicator (tampil selama dokumen dimuat) ───────
+        self.status_frame = QFrame()
+        self.status_frame.setProperty("class", "MysticCard")
+        status_layout = QVBoxLayout(self.status_frame)
+        self.lbl_status = QLabel("Memuat kitab suci Primbon Betaljemur...")
+        self.lbl_status.setAlignment(Qt.AlignCenter)
+        self.lbl_status.setStyleSheet("color:#D4AF37; font-size:13px; font-style:italic;")
+        status_layout.addWidget(self.lbl_status)
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 0)   # mode indeterminate / "busy spinner"
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(6)
+        status_layout.addWidget(self.progress)
+        layout.addWidget(self.status_frame)
+
+        # ── PDF Viewport (QPdfView, scrollbar bawaan, mode multipage) ───────
+        self.pdf_view = QPdfView()
+        self.pdf_view.setPageMode(QPdfView.PageMode.MultiPage)
+        self.pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
+        self.pdf_view.setStyleSheet("""
+            QPdfView {
+                background-color: #07040F;
+                border: 1px solid #351C5E;
+                border-radius: 10px;
+            }
+        """)
+        # Samakan gaya scrollbar dengan tema scrollbar global aplikasi
+        self.pdf_view.verticalScrollBar().setStyleSheet("""
+            QScrollBar:vertical {
+                border: none;
+                background: #0B0816;
+                width: 8px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #4E2C7E;
+                border-radius: 4px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #8E44AD;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+        """)
+        self.pdf_view.setVisible(False)
+        layout.addWidget(self.pdf_view, 1)
+
+        self.retranslate()
+
+        # Tunda pemuatan satu siklus event-loop agar window utama selesai
+        # tampil dulu sebelum proses pembacaan berkas PDF dimulai.
+        QTimer.singleShot(150, self.start_loading)
+
+    # --------------------------------------------------------------------
+    def start_loading(self):
+        if self._doc_loaded or not _QTPDF_AVAILABLE:
+            return
+        self._doc_loaded = True
+
+        self.pdf_doc = QPdfDocument(self)
+        self.pdf_doc.statusChanged.connect(self._on_status_changed)
+
+        if not os.path.exists(self._PDF_PATH):
+            self.lbl_status.setText(lang_mgr.get("betaljemur_error"))
+            self.progress.setVisible(False)
+            return
+
+        # load() berjalan asynchronous: fungsi ini kembali seketika, status
+        # pemuatan dilaporkan lewat sinyal statusChanged (Loading -> Ready /
+        # Error) sehingga UI tetap responsif walau berkas besar.
+        self.pdf_doc.load(self._PDF_PATH)
+
+    def _on_status_changed(self, status):
+        Status = QPdfDocument.Status
+        if status == Status.Ready:
+            self.status_frame.setVisible(False)
+            self.pdf_view.setVisible(True)
+            self.pdf_view.setDocument(self.pdf_doc)
+
+            nav = self.pdf_view.pageNavigator()
+            nav.currentPageChanged.connect(self._on_current_page_changed)
+
+            page_count = max(1, self.pdf_doc.pageCount())
+            self.spin_page.blockSignals(True)
+            self.spin_page.setMaximum(page_count)
+            self.spin_page.setValue(1)
+            self.spin_page.blockSignals(False)
+            self.lbl_page_total.setText(f"{lang_mgr.get('betaljemur_page_of')} {page_count}")
+
+            # Switch to Custom zoom mode so slider can control zoom level
+            self.pdf_view.setZoomMode(QPdfView.ZoomMode.Custom)
+            self.pdf_view.setZoomFactor(1.0)
+            self.zoom_slider.setValue(100)
+
+            self._set_controls_enabled(True)
+        elif status == Status.Error:
+            self.lbl_status.setText(lang_mgr.get("betaljemur_error"))
+            self.progress.setVisible(False)
+        elif status == Status.Loading:
+            self.lbl_status.setText(lang_mgr.get("betaljemur_loading"))
+
+    def _on_current_page_changed(self, page_index: int):
+        self.spin_page.blockSignals(True)
+        self.spin_page.setValue(page_index + 1)
+        self.spin_page.blockSignals(False)
+
+    def _set_controls_enabled(self, enabled: bool):
+        self.btn_prev.setEnabled(enabled)
+        self.btn_next.setEnabled(enabled)
+        self.btn_jump.setEnabled(enabled)
+        self.spin_page.setEnabled(enabled)
+        self.zoom_slider.setEnabled(enabled)
+        self.btn_zoom_reset.setEnabled(enabled)
+
+    # --------------------------------------------------------------------
+    def go_prev_page(self):
+        if not self.pdf_view or not self.pdf_doc:
+            return
+        current = self.pdf_view.pageNavigator().currentPage()
+        if current > 0:
+            self._jump(current - 1)
+
+    def go_next_page(self):
+        if not self.pdf_view or not self.pdf_doc:
+            return
+        current = self.pdf_view.pageNavigator().currentPage()
+        if current < self.pdf_doc.pageCount() - 1:
+            self._jump(current + 1)
+
+    def jump_to_spin_page(self):
+        if not self.pdf_view or not self.pdf_doc:
+            return
+        target = self.spin_page.value() - 1
+        target = max(0, min(target, self.pdf_doc.pageCount() - 1))
+        self._jump(target)
+
+    def _jump(self, page_index: int):
+        nav = self.pdf_view.pageNavigator()
+        nav.jump(page_index, QPointF(0, 0), nav.currentZoom())
+
+    # --------------------------------------------------------------------
+    def _on_zoom_slider_changed(self, value: int):
+        """Update pdf_view zoom when slider changes."""
+        pct = value / 100.0
+        self.lbl_zoom_pct.setText(f"{value}%")
+        if self.pdf_view and self.pdf_doc and            self.pdf_doc.status() == QPdfDocument.Status.Ready:
+            self.pdf_view.setZoomMode(QPdfView.ZoomMode.Custom)
+            self.pdf_view.setZoomFactor(pct)
+
+    def _on_zoom_reset(self):
+        """Reset zoom to fit-to-width (100% slider position)."""
+        self.zoom_slider.setValue(100)
+        if self.pdf_view and self.pdf_doc and            self.pdf_doc.status() == QPdfDocument.Status.Ready:
+            self.pdf_view.setZoomMode(QPdfView.ZoomMode.FitToWidth)
+            self.lbl_zoom_pct.setText("Auto")
+
+    # --------------------------------------------------------------------
+    def retranslate(self):
+        self.title.setText(lang_mgr.get("primbon_betaljemur"))
+        if not _QTPDF_AVAILABLE:
+            return
+
+        self.btn_prev.setText(lang_mgr.get("betaljemur_prev"))
+        self.btn_next.setText(lang_mgr.get("betaljemur_next"))
+        self.btn_jump.setText(lang_mgr.get("betaljemur_go"))
+        self.btn_zoom_reset.setText(lang_mgr.get("betaljemur_zoom_reset"))
+        self.lbl_page.setText(lang_mgr.get("betaljemur_page_label"))
+        self.lbl_zoom.setText(f"🔍 {lang_mgr.get('betaljemur_zoom')}")
+
+        if self.pdf_doc is not None and self.pdf_doc.status() == QPdfDocument.Status.Ready:
+            self.lbl_page_total.setText(
+                f"{lang_mgr.get('betaljemur_page_of')} {self.pdf_doc.pageCount()}"
+            )
+        else:
+            self.lbl_page_total.setText(f"{lang_mgr.get('betaljemur_page_of')} 0")
+
+        if self.status_frame.isVisible():
+            is_error = (self.pdf_doc is not None and
+                        self.pdf_doc.status() == QPdfDocument.Status.Error) or \
+                       (self.pdf_doc is None and not os.path.exists(self._PDF_PATH))
+            self.lbl_status.setText(
+                lang_mgr.get("betaljemur_error") if is_error
+                else lang_mgr.get("betaljemur_loading")
+            )
+
+
+# ==============================================================================
 # SUB-VIEW: SPIRITUAL CALENDAR / WETON PASARAN OVERVIEW
 # ==============================================================================
 class CalendarView(QWidget):
@@ -3381,7 +3832,7 @@ bgm_manager = BgmManager()
 # ==============================================================================
 # MAIN WINDOW FRAME WITH WINDOW CONTROLS & MODERN SIDEBAR
 # ==============================================================================
-class MacanPeramalWindow(QMainWindow):
+class MacanPeramalWindow(NativeResizeMixin, SnapLayoutMixin, QMainWindow):
     def __init__(self):
         super().__init__()
         self.drag_position = QPoint()
@@ -3393,6 +3844,26 @@ class MacanPeramalWindow(QMainWindow):
         
         self.init_main_ui()
         lang_mgr.language_changed.connect(self.retranslate_ui)
+
+        # ── Native resize/drag/maximize (WM_NCHITTEST) — pola yang sama
+        # dipakai di seluruh suite Macan. Title bar jadi drag handle;
+        # tombol-tombol di dalamnya (QPushButton) otomatis dikecualikan
+        # dari drag karena itu tipe default set_drag_interactive_types().
+        # Mixin ini juga sudah menangani double-click title bar untuk
+        # maximize/restore dan pseudo-maximize yang taskbar-autohide-aware.
+        if _NATIVE_RESIZE_AVAILABLE:
+            self.resize_margin = 6
+            self.set_drag_widget(self.title_bar)
+            print(f"[Macan Peramal] Native resize aktif "
+                  f"(platform Windows: {_NATIVE_RESIZE_ACTIVE_PLATFORM}, "
+                  f"resize_margin={self.resize_margin}px, "
+                  f"drag_widget={self._drag_widget!r}).")
+        else:
+            print("[Macan Peramal] Native resize TIDAK aktif — pakai fallback drag manual.")
+
+        # ── Windows 11-style Snap Layout flyout saat hover tombol maximize ──
+        if _SNAP_LAYOUT_AVAILABLE:
+            self.init_snap_layout(self.btn_max)
 
         # Start background music
         bgm_manager.play()
@@ -3423,6 +3894,7 @@ class MacanPeramalWindow(QMainWindow):
         title_bar.setObjectName("TitleBarFrame")
         title_bar_layout = QHBoxLayout(title_bar)
         title_bar_layout.setContentsMargins(15, 10, 15, 10)
+        self.title_bar = title_bar
         
         # App Identity Icon & Title
         self.title_lbl = QLabel("🐯 Macan Peramal")
@@ -3431,17 +3903,22 @@ class MacanPeramalWindow(QMainWindow):
         
         title_bar_layout.addStretch()
         
-        # Window buttons (Min, Max, Close) styled as glowing circles
-        btn_min = QPushButton("━")
-        btn_min.setStyleSheet("background: transparent; color: #8C84A9; font-weight: bold; border: none; padding: 4px;")
-        btn_min.clicked.connect(self.showMinimized)
+        # Window buttons (Min, Max/Restore, Close) styled as glowing circles
+        self.btn_min = QPushButton("━")
+        self.btn_min.setStyleSheet("background: transparent; color: #8C84A9; font-weight: bold; border: none; padding: 4px;")
+        self.btn_min.clicked.connect(self.showMinimized)
+
+        self.btn_max = QPushButton("❐")
+        self.btn_max.setStyleSheet("background: transparent; color: #8C84A9; font-weight: bold; border: none; padding: 4px;")
+        self.btn_max.clicked.connect(self.toggle_maximize)
         
-        btn_close = QPushButton("✕")
-        btn_close.setStyleSheet("background: transparent; color: #FF708C; font-weight: bold; border: none; padding: 4px;")
-        btn_close.clicked.connect(self.close)
+        self.btn_close = QPushButton("✕")
+        self.btn_close.setStyleSheet("background: transparent; color: #FF708C; font-weight: bold; border: none; padding: 4px;")
+        self.btn_close.clicked.connect(self.close)
         
-        title_bar_layout.addWidget(btn_min)
-        title_bar_layout.addWidget(btn_close)
+        title_bar_layout.addWidget(self.btn_min)
+        title_bar_layout.addWidget(self.btn_max)
+        title_bar_layout.addWidget(self.btn_close)
         
         core_layout.addWidget(title_bar)
         
@@ -3478,6 +3955,7 @@ class MacanPeramalWindow(QMainWindow):
             ("numerology", "⭐"),
             ("dream_interpreter", "🌙"),
             ("primbon_encyclopedia", "📖"),
+            ("primbon_betaljemur", "📜"),
             ("calendar", "🕯️"),
             ("daily_fortune", "🍀"),
             ("tarot_reading", "🃏"),
@@ -3517,28 +3995,30 @@ class MacanPeramalWindow(QMainWindow):
         self.view_numerology = NumerologyView()
         self.view_dream = DreamView()
         self.view_primbon = PrimbonView()
+        self.view_primbon_betaljemur = PrimbonBetaljemurView()
         self.view_calendar = CalendarView()
         self.view_daily_fortune = DailyFortuneView()
         self.view_settings = SettingsView()
         
-        # ── Tarot Module (index 9 — inserted before settings) ──────────────────
+        # ── Tarot Module (index 10 — inserted before settings) ─────────────────
         if _TAROT_AVAILABLE:
             self.view_tarot = _TarotPanel()
         else:
             # Graceful fallback widget when tarot_panel.py is missing
             self.view_tarot = _TarotFallbackWidget()
         
-        self.content_stack.addWidget(self.view_dashboard)        # 0
-        self.content_stack.addWidget(self.view_name_analysis)    # 1
-        self.content_stack.addWidget(self.view_birth_analysis)   # 2
-        self.content_stack.addWidget(self.view_compatibility)    # 3
-        self.content_stack.addWidget(self.view_numerology)       # 4
-        self.content_stack.addWidget(self.view_dream)            # 5
-        self.content_stack.addWidget(self.view_primbon)          # 6
-        self.content_stack.addWidget(self.view_calendar)         # 7
-        self.content_stack.addWidget(self.view_daily_fortune)    # 8
-        self.content_stack.addWidget(self.view_tarot)            # 9  ← Tarot
-        self.content_stack.addWidget(self.view_settings)         # 10
+        self.content_stack.addWidget(self.view_dashboard)            # 0
+        self.content_stack.addWidget(self.view_name_analysis)        # 1
+        self.content_stack.addWidget(self.view_birth_analysis)       # 2
+        self.content_stack.addWidget(self.view_compatibility)        # 3
+        self.content_stack.addWidget(self.view_numerology)           # 4
+        self.content_stack.addWidget(self.view_dream)                # 5
+        self.content_stack.addWidget(self.view_primbon)               # 6
+        self.content_stack.addWidget(self.view_primbon_betaljemur)    # 7  ← Kitab Primbon Betaljemur
+        self.content_stack.addWidget(self.view_calendar)              # 8
+        self.content_stack.addWidget(self.view_daily_fortune)         # 9
+        self.content_stack.addWidget(self.view_tarot)                 # 10 ← Tarot
+        self.content_stack.addWidget(self.view_settings)              # 11
         
         workspace_layout.addWidget(self.content_stack, 7)
         core_layout.addWidget(workspace)
@@ -3566,10 +4046,74 @@ class MacanPeramalWindow(QMainWindow):
         # Retranslate Sidebar button labels
         for btn, key, emoji in self.nav_buttons:
             btn.setText(f"{emoji}  {lang_mgr.get(key)}")
-            
-    # Window dragging logic overrides for Frameless UI Experience
+
+    # ── Maximize / Restore toggle for the custom title bar button ──────────
+    def toggle_maximize(self):
+        if _NATIVE_RESIZE_AVAILABLE:
+            # Taskbar-autohide-aware toggle (handles pseudo-maximize too).
+            self.toggle_maximize_restore()
+        else:
+            if self.isMaximized():
+                self.showNormal()
+            else:
+                self.showMaximized()
+        self._refresh_window_chrome()
+
+    def _is_window_maximized(self) -> bool:
+        if _NATIVE_RESIZE_AVAILABLE:
+            return self._is_pseudo_or_maximized()
+        return self.isMaximized()
+
+    def _refresh_window_chrome(self):
+        """Sync the maximize/restore button glyph and the central widget's
+        rounded-border styling with the current window state. Covers both
+        a real OS maximize AND native_resize.py's taskbar-aware
+        pseudo-maximize state (which doesn't trigger WindowStateChange)."""
+        is_max = self._is_window_maximized()
+        self.btn_max.setText("❒" if is_max else "❐")
+        if is_max:
+            self.central_widget.setStyleSheet("""
+                QWidget#CentralWidget {
+                    background-color: #0B0816;
+                    border: none;
+                    border-radius: 0px;
+                }
+            """)
+        else:
+            self.central_widget.setStyleSheet("""
+                QWidget#CentralWidget {
+                    background-color: #0B0816;
+                    border: 1px solid #2B1B4D;
+                    border-radius: 12px;
+                }
+            """)
+
+    def _sync_maximize_icon(self):
+        """Hook overridden from NativeResizeMixin: the mixin's own version
+        only swaps a QIcon on a registered target, but our maximize button
+        uses a plain text glyph (❐ / ❒), so we redirect it here. The mixin
+        calls this after pseudo-maximize and after every restore."""
+        self._refresh_window_chrome()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.WindowStateChange:
+            self._refresh_window_chrome()
+
+    # ── Snap Layout flyout hover detection (tombol maximize) ───────────────
+    def eventFilter(self, obj, event):
+        if _SNAP_LAYOUT_AVAILABLE and self.snap_event_filter(obj, event):
+            return True
+        return super().eventFilter(obj, event)
+
+    # Window dragging fallback for non-Windows platforms.
+    # On Windows, dragging, resizing, and double-click-maximize are handled
+    # NATIVELY via WM_NCHITTEST interception (native_resize.py), which also
+    # unlocks free Aero-Snap and taskbar-autohide-aware pseudo-maximize.
+    # This manual fallback only runs when that native hook isn't active
+    # (module missing, or running on Linux/macOS).
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if not (_NATIVE_RESIZE_AVAILABLE and _NATIVE_RESIZE_ACTIVE_PLATFORM) and event.button() == Qt.LeftButton:
             self.drag_position = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
             event.accept()
 
@@ -3579,7 +4123,7 @@ class MacanPeramalWindow(QMainWindow):
         super().closeEvent(event)
 
     def mouseMoveEvent(self, event):
-        if event.buttons() == Qt.LeftButton:
+        if not (_NATIVE_RESIZE_AVAILABLE and _NATIVE_RESIZE_ACTIVE_PLATFORM) and event.buttons() == Qt.LeftButton:
             self.move(event.globalPosition().toPoint() - self.drag_position)
             event.accept()
 
